@@ -1,0 +1,7 @@
+name = "defendable-graph"
+compatibility_date = "2026-05-28"
+pages_build_output_dir = ".vercel/output/static"
+
+[vars]
+NEXT_PUBLIC_SITE_URL = "https://defendablegraph.com"
+DATABASE_URL = "file:./dev.db"

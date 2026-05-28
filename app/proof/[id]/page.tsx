@@ -4,6 +4,8 @@ import { Badge, JsonBlock, SectionTitle, Shell } from "@/components/chrome";
 import { getProofTrace } from "@/lib/graph";
 import CopyButton from "@/components/copy-button";
 
+export const runtime = "edge";
+
 type ProofNode = { name?: string; description?: string };
 type HydratedProof = Record<string, unknown> & {
   id: string;

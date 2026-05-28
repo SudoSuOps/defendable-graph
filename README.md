@@ -93,3 +93,18 @@ For a standard Next.js deployment, connect this repo to Cloudflare Pages and use
 ## Product Direction
 
 DefendableGraph is the relationship layer for trusted AI execution. DefendableOS explains proof of execution. DefendableCloud provides member datasets and private compute. DefendableRouter controls jobs and receipts. DefendableGraph shows how those pieces connect.
+
+## Cloudflare Pages Deployment
+
+Use the Cloudflare-compatible Next.js build output, not raw `.next`.
+
+Cloudflare Pages settings:
+
+```text
+Framework preset: Next.js
+Build command: npm run pages:build
+Build output directory: .vercel/output/static
+Root directory: /
+```
+
+The raw `.next` directory contains build cache files that exceed Cloudflare Pages' 25 MiB asset limit. The `pages:build` script uses `@cloudflare/next-on-pages` to produce the Pages-compatible `.vercel/output/static` directory and worker assets.
