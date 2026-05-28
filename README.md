@@ -14,6 +14,32 @@ Client -> Assignment -> Agent/Model -> Dataset -> Worker -> Compute Node -> Rule
 
 DefendableGraph makes that chain visible, searchable, inspectable, and API-addressable.
 
+## Live Chain Mode
+
+The graph dashboards (`/graph`, `/events`) optionally feed from a live
+DefendableCloud org chain. When the following env vars are set, the seed
+data is hidden and the live chain takes over:
+
+```
+DEFENDABLE_CLOUD_API_BASE   default https://api.defendablecloud.com
+DEFENDABLE_CLOUD_API_KEY    member API key (dc_...) for that org
+```
+
+To mint a key:
+
+1. Sign in at https://app.defendablecloud.com/org
+2. Create an API key (any label) → copy the `dc_...` secret on screen
+3. Set it on the graph's Cloudflare Pages env:
+   ```bash
+   wrangler pages secret put DEFENDABLE_CLOUD_API_KEY --project-name=defendable-graph
+   ```
+4. Redeploy → `/graph` now shows the live receipt chain (model pins, cooks,
+   evals, dataset downloads, incidents) layered onto the always-on infra
+   backbone (org, operators, agents, GPUs).
+
+When the key is unset OR the chain is empty, the page falls back to seed
+data so the demo never goes blank.
+
 ## Stack
 
 - Next.js App Router
