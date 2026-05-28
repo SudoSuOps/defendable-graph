@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "@xyflow/react/dist/style.css";
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: #05070d;
+  color: #f5f0e6;
+}
+
+.graph-grid {
+  background-image:
+    linear-gradient(rgba(69, 211, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(69, 211, 255, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.edge-flow path.react-flow__edge-path {
+  stroke-dasharray: 8 14;
+  animation: edgeFlow 2.8s linear infinite;
+}
+
+.react-flow__controls,
+.react-flow__minimap {
+  background: rgba(10, 17, 31, 0.82) !important;
+  border: 1px solid rgba(80, 107, 148, 0.35) !important;
+  color: #f5f0e6 !important;
+}
+
+.react-flow__handle { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

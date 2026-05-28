@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Entity {
+  id          String   @id
+  type        String
+  name        String
+  status      String
+  description String
+  metadata    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  outgoing    Relationship[] @relation("RelationshipSource")
+  incoming    Relationship[] @relation("RelationshipTarget")
+  actorEvents GraphEvent[]   @relation("EventActor")
+  subjectEvents GraphEvent[] @relation("EventSubject")
+}
+
+model Relationship {
+  id        String   @id
+  sourceId  String
+  targetId  String
+  type      String
+  metadata  String
+  createdAt DateTime @default(now())
+
+  source Entity @relation("RelationshipSource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target Entity @relation("RelationshipTarget", fields: [targetId], references: [id], onDelete: Cascade)
+}
+
+model GraphEvent {
+  id          String   @id
+  eventType   String
+  actorId     String?
+  subjectId   String?
+  receiptHash String?
+  status      String
+  metadata    String
+  createdAt   DateTime @default(now())
+
+  actor   Entity? @relation("EventActor", fields: [actorId], references: [id], onDelete: SetNull)
+  subject Entity? @relation("EventSubject", fields: [subjectId], references: [id], onDelete: SetNull)
+}
+
+model Artifact {
+  id        String   @id
+  type      String
+  name      String
+  uri       String
+  sha256    String?
+  metadata  String
+  createdAt DateTime @default(now())
+}
+
+model ProofTrace {
+  id            String   @id
+  assignmentId  String
+  clientId      String
+  modelId       String
+  workerId      String
+  computeNodeId String
+  datasetIds    String
+  rulebookId    String
+  verdictId     String
+  receiptHash   String
+  artifactId    String
+  metadata      String
+  createdAt     DateTime @default(now())
+}

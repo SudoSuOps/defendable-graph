@@ -1,0 +1,9 @@
+import { Activity, RadioTower } from "lucide-react";
+import { Badge, SectionTitle, Shell } from "@/components/chrome";
+import { getEvents } from "@/lib/graph";
+import EventSimulator from "@/components/event-simulator";
+
+export default async function EventsPage() {
+  const events = await getEvents();
+  return <Shell><main className="relative z-10 mx-auto max-w-7xl px-5 py-10"><div className="flex flex-wrap items-end justify-between gap-5"><SectionTitle eyebrow="Live Events" title="Proof graph event stream" body="Seeded operational events that show assignments, routing, worker activity, model invocation, receipts, artifacts, and deeds entering the graph." /><EventSimulator /></div><section className="mt-8 grid gap-3">{events.map((event, index) => <article key={event.id} className="grid gap-4 border border-line bg-panel/60 p-4 md:grid-cols-[12rem_1fr_10rem] md:items-center" style={{ animationDelay: `${index * 80}ms` }}><div><div className="font-mono text-xs text-stone-500">{new Date(event.createdAt).toLocaleString()}</div><div className="mt-2 flex items-center gap-2 text-signal"><RadioTower size={14} /><span className="font-mono text-[10px] uppercase tracking-[0.16em]">incoming</span></div></div><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-base font-semibold text-stone-100">{event.eventType}</h2><Badge tone={event.status === "verified" ? "green" : "blue"}>{event.status}</Badge></div><div className="mt-2 font-mono text-xs text-stone-500">actor:{event.actorId ?? "system"} · subject:{event.subjectId ?? "graph"}</div>{event.receiptHash && <div className="mt-2 break-all font-mono text-xs text-honey-300">{event.receiptHash}</div>}</div><div className="flex justify-start md:justify-end"><Activity className="text-signal" size={18} /></div></article>)}</section></main></Shell>;
+}
