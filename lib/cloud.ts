@@ -69,6 +69,101 @@ export async function fetchRecentReceipts(limit = 50): Promise<ReceiptRollupList
   return (await res.json()) as ReceiptRollupList;
 }
 
+// ── Dataset catalog · /datasets/catalog (member-only) ───────────────────────
+
+export interface DatasetPackage {
+  slug: string;
+  name: string;
+  vertical: string;
+  tier: string;
+  pkg_class: string;
+  pairs: number;
+  deed_anchored: boolean;
+  deed: string;
+}
+
+export interface DatasetCatalog {
+  version: string;
+  generated_at: string | null;
+  catalog_sha256: string | null;
+  packages_sha256: string | null;
+  anchor: { label: string | null; hash: string | null } | null;
+  scorecard: {
+    total_packages: number;
+    total_pairs: number;
+    deed_anchored: number;
+    total_usd?: number | null;
+  };
+  verticals: Record<string, { packages: number; pairs: number; usd: number | null }>;
+  packages: DatasetPackage[];
+}
+
+export interface DatasetDownloadGrant {
+  receipt_id: string;
+  org_seq: number;
+  receipt_sha256: string;
+  share_url: string;
+  download_url: string;
+  ready: boolean;
+  expires_at: string;
+  package: {
+    slug: string;
+    name: string;
+    vertical: string;
+    tier: string;
+    pkg_class: string;
+    pairs: number;
+    deed_anchored: boolean;
+  };
+}
+
+/** Fetch the members-only dataset catalog (99 packages, 12 verticals). */
+export async function fetchDatasetCatalog(): Promise<DatasetCatalog | null> {
+  const key = cloudKey();
+  if (!key) return null;
+  const res = await fetch(`${cloudBase()}/datasets/catalog`, {
+    headers: { Authorization: `Bearer ${key}` },
+    // Datasets don't change often · 5-minute cache.
+    next: { revalidate: 300 },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as DatasetCatalog;
+}
+
+/** Fetch a single dataset package by slug. */
+export async function fetchDatasetPackage(slug: string): Promise<DatasetPackage | null> {
+  const key = cloudKey();
+  if (!key) return null;
+  const res = await fetch(`${cloudBase()}/datasets/catalog/${encodeURIComponent(slug)}`, {
+    headers: { Authorization: `Bearer ${key}` },
+    next: { revalidate: 300 },
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as DatasetPackage;
+}
+
+/** Mint a dataset download grant · returns the share URL the recipient can use. */
+export async function createDatasetDownloadGrant(
+  slug: string,
+  expiresInHours: number = 24,
+): Promise<DatasetDownloadGrant | null> {
+  const key = cloudKey();
+  if (!key) return null;
+  const res = await fetch(
+    `${cloudBase()}/datasets/catalog/${encodeURIComponent(slug)}/download`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ expires_in_hours: expiresInHours }),
+    },
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as DatasetDownloadGrant;
+}
+
 /** Fetch a single public receipt by share token (no auth required). */
 export async function fetchPublicReceipt(token: string): Promise<PublicReceipt | null> {
   if (!token) return null;

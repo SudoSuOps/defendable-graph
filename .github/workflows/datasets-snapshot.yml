@@ -1,0 +1,92 @@
+name: datasets-snapshot
+
+# Daily validation that the live DefendableCloud dataset catalog is reachable
+# AND that the books-and-records shape hasn't drifted. The snapshot is uploaded
+# as a 90-day-retention artifact so a future audit can compare any historical
+# catalog state against the chain.
+#
+# This workflow does NOT publish anywhere. It's a read-only health check that
+# proves the wire between defendable-cloud-v2 ↔ defendable-graph stays live.
+#
+# Requires repo secret:
+#   DEFENDABLE_CLOUD_API_KEY  member dc_... key for the org whose catalog is
+#                              fetched (same key used by the CF Pages worker)
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "lib/cloud.ts"
+      - "lib/cloud-to-graph.ts"
+      - ".github/workflows/datasets-snapshot.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    name: pull + validate dataset catalog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch /datasets/catalog
+        id: pull
+        env:
+          DC_BASE: ${{ vars.DEFENDABLE_CLOUD_API_BASE || 'https://api.defendablecloud.com' }}
+          DC_KEY: ${{ secrets.DEFENDABLE_CLOUD_API_KEY }}
+        run: |
+          if [ -z "$DC_KEY" ]; then
+            echo "::error::DEFENDABLE_CLOUD_API_KEY secret is not set on this repo."
+            exit 1
+          fi
+          curl -sS --fail-with-body \
+            -H "Authorization: Bearer $DC_KEY" \
+            "$DC_BASE/datasets/catalog" > catalog.json
+          echo "Fetched $(wc -c < catalog.json) bytes."
+
+      - name: Validate catalog shape
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("catalog.json"))
+          pkgs = d.get("packages", [])
+          verticals = d.get("verticals", {})
+          score = d.get("scorecard", {})
+          sha = d.get("packages_sha256") or ""
+          print(f"version={d.get('version','?')}")
+          print(f"generated_at={d.get('generated_at','?')}")
+          print(f"packages={len(pkgs)}")
+          print(f"verticals={len(verticals)}")
+          print(f"total_pairs={score.get('total_pairs',0):,}")
+          print(f"deed_anchored={score.get('deed_anchored',0)}")
+          print(f"packages_sha256={sha[:16]}…" if sha else "packages_sha256=(missing)")
+          # Soft asserts — fail loud if the books-and-records shape drifts.
+          assert len(pkgs) >= 50, f"unexpectedly few packages: {len(pkgs)}"
+          assert len(verticals) >= 5, f"unexpectedly few verticals: {len(verticals)}"
+          assert sha and len(sha) == 64, "packages_sha256 missing or wrong length"
+          print("VALIDATE OK")
+          PY
+
+      - name: Print vertical roll-up
+        run: |
+          python3 - <<'PY'
+          import json
+          d = json.load(open("catalog.json"))
+          rows = sorted(d.get("verticals", {}).items(), key=lambda kv: -kv[1].get("pairs",0))
+          print(f"\n{'vertical':<20} {'packages':>10} {'pairs':>15}")
+          for v, info in rows:
+            print(f"{v:<20} {info.get('packages','?'):>10} {info.get('pairs',0):>15,}")
+          PY
+
+      - name: Upload catalog snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: datasets-catalog-${{ github.run_id }}
+          path: catalog.json
+          retention-days: 90

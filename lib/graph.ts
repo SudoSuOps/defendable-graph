@@ -9,8 +9,13 @@
 // assignment / verdict / receipt / deed / artifact) are HIDDEN when the live
 // chain has receipts of its own — the live chain takes the wheel.
 
-import { fetchPublicReceipt, fetchRecentReceipts, hasCloudAuth } from "./cloud";
-import { projectChain } from "./cloud-to-graph";
+import {
+  fetchDatasetCatalog,
+  fetchPublicReceipt,
+  fetchRecentReceipts,
+  hasCloudAuth,
+} from "./cloud";
+import { projectChain, projectDatasets } from "./cloud-to-graph";
 import {
   entities,
   events as seedEvents,
@@ -36,21 +41,49 @@ export async function getGraphData() {
   if (!hasCloudAuth()) {
     return { nodes: entities, edges: relationships };
   }
-  const live = await fetchRecentReceipts(50);
+  // Fetch live chain + dataset catalog in parallel · datasets are a separate
+  // member-only endpoint but cap-graceful: missing catalog just means no
+  // dataset library nodes (chain still renders).
+  const [live, catalog] = await Promise.all([
+    fetchRecentReceipts(50),
+    fetchDatasetCatalog(),
+  ]);
+
   if (!live || live.rollups.length === 0) {
-    // Auth configured but chain is empty · show the seed graph so the page
-    // isn't a blank canvas. Members signal to the operator that the wiring
-    // is correct via the "Live chain · 0 receipts" hint in the UI.
+    // Auth configured but chain is empty · show the seed graph + (if available)
+    // the dataset library overlay so members see something useful immediately.
+    if (catalog) {
+      const ds = projectDatasets(catalog);
+      // Include the live-org root so the dataset categories edge to a real
+      // anchor even when no receipts exist yet.
+      const orgRoot: typeof entities = [
+        {
+          id: "live_org_root",
+          type: "organization",
+          name: "Your chain",
+          status: "verified",
+          description: "Live chain · awaiting first receipt.",
+          metadata: { source: "GET /receipts/recent", limit: 0 },
+        },
+      ];
+      return {
+        nodes: [...entities, ...orgRoot, ...ds.nodes],
+        edges: [...relationships, ...ds.edges],
+      };
+    }
     return { nodes: entities, edges: relationships };
   }
+
   const projected = projectChain(live.rollups);
+  const datasetProjection = catalog ? projectDatasets(catalog) : { nodes: [], edges: [] };
+
   const filteredInfra = entities.filter((e) => !DEMO_TRACE_IDS.has(e.id));
   const filteredEdges = relationships.filter(
     (r) => !DEMO_TRACE_IDS.has(r.sourceId) && !DEMO_TRACE_IDS.has(r.targetId),
   );
   return {
-    nodes: [...filteredInfra, ...projected.nodes],
-    edges: [...filteredEdges, ...projected.edges],
+    nodes: [...filteredInfra, ...projected.nodes, ...datasetProjection.nodes],
+    edges: [...filteredEdges, ...projected.edges, ...datasetProjection.edges],
   };
 }
 

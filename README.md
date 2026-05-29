@@ -14,6 +14,27 @@ Client -> Assignment -> Agent/Model -> Dataset -> Worker -> Compute Node -> Rule
 
 DefendableGraph makes that chain visible, searchable, inspectable, and API-addressable.
 
+## Datasets
+
+The dataset library is wired live from DefendableCloud's `/datasets/catalog`
+endpoint. Visit:
+
+- `/datasets` — the full library (99 packages · 12 verticals · 3.35M training
+  pairs) with vertical filter chips and search.
+- `/share/dataset/<slug>` — public share link for any single dataset card.
+  Anyone with the URL sees the card and can initiate a download · the
+  download itself mints a per-org receipt on the chain (books-and-records
+  by design).
+
+Public share viewers don't need member auth. The graph's server-side route
+handlers (`/api/share/dataset/<slug>`, `/api/share/dataset/<slug>/download`)
+proxy through the configured API key.
+
+A daily GitHub Actions workflow (`.github/workflows/datasets-snapshot.yml`)
+pulls the catalog, validates the books-and-records shape, and uploads the
+JSON as a 90-day-retention artifact. Set the `DEFENDABLE_CLOUD_API_KEY` repo
+secret to enable.
+
 ## Live Chain Mode
 
 The graph dashboards (`/graph`, `/events`) optionally feed from a live
