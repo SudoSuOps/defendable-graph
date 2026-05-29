@@ -37,6 +37,35 @@ const DEMO_TRACE_IDS = new Set<string>([
   // Rulebook is part of the always-on infra so we keep it.
 ]);
 
+/** Last-write-wins dedup by id. Used to merge across projectors that can
+ * legitimately reference the same logical entity (e.g. a dataset projected
+ * both from a download receipt and from the catalog). Order matters: pass
+ * the canonical/richest source LAST.
+ */
+function dedupeNodes<T extends { id: string }>(...lists: T[][]): T[] {
+  const map = new Map<string, T>();
+  for (const list of lists) for (const item of list) map.set(item.id, item);
+  return Array.from(map.values());
+}
+
+function dedupeEdges<T extends { id: string; sourceId: string; targetId: string }>(
+  ...lists: T[][]
+): T[] {
+  // Dedup by id, but ALSO collapse identical (sourceId,targetId,type) pairs
+  // that came from different projectors with different generated ids.
+  const map = new Map<string, T>();
+  const pairKeys = new Set<string>();
+  for (const list of lists) {
+    for (const edge of list) {
+      const pk = `${edge.sourceId}→${edge.targetId}→${(edge as { type?: string }).type ?? ""}`;
+      if (map.has(edge.id) || pairKeys.has(pk)) continue;
+      map.set(edge.id, edge);
+      pairKeys.add(pk);
+    }
+  }
+  return Array.from(map.values());
+}
+
 export async function getGraphData() {
   if (!hasCloudAuth()) {
     return { nodes: entities, edges: relationships };
@@ -54,21 +83,21 @@ export async function getGraphData() {
     // the dataset library overlay so members see something useful immediately.
     if (catalog) {
       const ds = projectDatasets(catalog);
-      // Include the live-org root so the dataset categories edge to a real
-      // anchor even when no receipts exist yet.
-      const orgRoot: typeof entities = [
+      const orgRoot = [
         {
           id: "live_org_root",
-          type: "organization",
+          type: "organization" as const,
           name: "Your chain",
-          status: "verified",
+          status: "verified" as const,
           description: "Live chain · awaiting first receipt.",
           metadata: { source: "GET /receipts/recent", limit: 0 },
         },
       ];
       return {
-        nodes: [...entities, ...orgRoot, ...ds.nodes],
-        edges: [...relationships, ...ds.edges],
+        // Catalog projection passed LAST so its richer metadata wins on
+        // any node-id collision with the seed.
+        nodes: dedupeNodes(entities, orgRoot, ds.nodes),
+        edges: dedupeEdges(relationships, ds.edges),
       };
     }
     return { nodes: entities, edges: relationships };
@@ -82,8 +111,11 @@ export async function getGraphData() {
     (r) => !DEMO_TRACE_IDS.has(r.sourceId) && !DEMO_TRACE_IDS.has(r.targetId),
   );
   return {
-    nodes: [...filteredInfra, ...projected.nodes, ...datasetProjection.nodes],
-    edges: [...filteredEdges, ...projected.edges, ...datasetProjection.edges],
+    // Order: seed-infra first · live chain projections next · catalog last.
+    // Catalog's richer dataset metadata wins over a chain-derived sparse
+    // dataset node (e.g. a download receipt that only knew the slug).
+    nodes: dedupeNodes(filteredInfra, projected.nodes, datasetProjection.nodes),
+    edges: dedupeEdges(filteredEdges, projected.edges, datasetProjection.edges),
   };
 }
 

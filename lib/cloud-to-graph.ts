@@ -12,7 +12,11 @@ import type { EntitySeed, EventSeed, RelationshipSeed } from "./seed-data";
 const receiptNodeId = (r: ReceiptRollup) => `receipt_${r.receipt_id}`;
 /** Stable id for an in-summary entity (so multiple receipts share the same model node). */
 const modelNodeId = (slug: string) => `model_live_${slug}`;
-const datasetNodeId = (slug: string) => `dataset_live_${slug}`;
+// Canonical dataset id · shared between projectChain (when a dataset-download
+// receipt references a slug) and projectDatasets (when the catalog declares
+// the package). Both use the same id so a dataset rendered from a receipt
+// AND from the catalog dedupe to one node post-merge.
+const datasetNodeId = (slug: string) => `dataset_pkg_${slug}`;
 const assignmentNodeId = (rid: string) => `assignment_live_${rid}`;
 const verdictNodeId = (rid: string) => `verdict_live_${rid}`;
 const deedNodeId = (rid: string) => `deed_live_${rid}`;
@@ -325,7 +329,6 @@ export const VERTICAL_LABEL: Record<string, string> = {
 };
 
 const datasetCategoryNodeId = (vertical: string) => `dataset_category_${vertical}`;
-const datasetPackageNodeId = (slug: string) => `dataset_pkg_${slug}`;
 
 /**
  * Project the dataset catalog onto graph nodes + edges.
@@ -374,7 +377,7 @@ export function projectDatasets(catalog: DatasetCatalog): {
 
   // ── Package nodes · one per dataset · edged back to its category ─────────
   for (const p of catalog.packages) {
-    const pid = datasetPackageNodeId(p.slug);
+    const pid = datasetNodeId(p.slug);
     const cid = datasetCategoryNodeId(p.vertical);
     nodes.push({
       id: pid,
