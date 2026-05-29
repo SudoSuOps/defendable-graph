@@ -38,6 +38,35 @@ interface DownloadGrant {
   receipt_sha256: string;
 }
 
+interface SamplesResponse {
+  package: DatasetPackage;
+  tigris_key: string;
+  file_bytes: number;
+  file_etag: string;
+  rows: Record<string, unknown>[];
+  count: number;
+  basename: string;
+}
+
+function inferSchema(rows: Record<string, unknown>[]): string[] {
+  if (!rows || rows.length === 0) return [];
+  const keys = new Set<string>();
+  for (const r of rows.slice(0, 10)) Object.keys(r).forEach((k) => keys.add(k));
+  return Array.from(keys).sort();
+}
+
+function formatBytes(n: number): string {
+  if (!n) return "0 B";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < u.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 ? 2 : v < 100 ? 1 : 0)} ${u[i]}`;
+}
+
 const VERTICAL_LABEL: Record<string, string> = {
   cre: "CRE",
   medical: "Medical",
@@ -67,11 +96,38 @@ export default function DatasetSharePage({
   const [copiedShare, setCopiedShare] = useState(false);
   const [grantErr, setGrantErr] = useState<string | null>(null);
 
+  const [samples, setSamples] = useState<SamplesResponse | null>(null);
+  const [samplesStatus, setSamplesStatus] = useState<
+    "loading" | "ready" | "preparing" | "error"
+  >("loading");
+
   useEffect(() => {
     fetch(`/api/share/dataset/${encodeURIComponent(slug)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)))
       .then(setPkg)
       .catch((e) => setErr(String(e)));
+  }, [slug]);
+
+  // Pull a tiny sample preview directly from the Tigris-staged object via
+  // server-side proxy. 425 means not-yet-staged; we surface a "preparing"
+  // hint and the member can trigger staging via the Download button below.
+  useEffect(() => {
+    fetch(`/api/share/dataset/${encodeURIComponent(slug)}/samples?limit=5`)
+      .then(async (r) => {
+        if (r.status === 425) {
+          setSamplesStatus("preparing");
+          return null;
+        }
+        if (!r.ok) {
+          setSamplesStatus("error");
+          return null;
+        }
+        const body: SamplesResponse = await r.json();
+        setSamples(body);
+        setSamplesStatus("ready");
+        return body;
+      })
+      .catch(() => setSamplesStatus("error"));
   }, [slug]);
 
   async function initiateDownload(format: "jsonl" | "json" | "csv") {
@@ -135,6 +191,74 @@ export default function DatasetSharePage({
               />
               <KV k="deed status" v={pkg.deed} />
             </div>
+
+            {/* Crystal-clear data preview · samples + manifest */}
+            <section className="mt-8">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-mono text-xs uppercase tracking-[0.2em] text-honey-300/80">
+                  Data preview · live from chain
+                </h2>
+                {samples && (
+                  <span className="font-mono text-[10px] text-stone-500">
+                    {formatBytes(samples.file_bytes)} · etag{" "}
+                    {samples.file_etag.slice(0, 12)}…
+                  </span>
+                )}
+              </div>
+
+              {samplesStatus === "loading" && (
+                <p className="mt-3 text-xs text-stone-500">Loading samples…</p>
+              )}
+
+              {samplesStatus === "preparing" && (
+                <div className="mt-3 border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-xs text-amber-200/90">
+                  Dataset is not yet staged in the download bucket. Initiating a
+                  download (button below) triggers the rails stager · samples
+                  will appear here on the next page-view (≈2 min).
+                </div>
+              )}
+
+              {samplesStatus === "error" && (
+                <p className="mt-3 text-xs text-red-400">
+                  Could not load samples · check DEFENDABLE_CLOUD_API_KEY env.
+                </p>
+              )}
+
+              {samplesStatus === "ready" && samples && (
+                <>
+                  {/* Inferred schema · keys present in the first rows */}
+                  <div className="mt-3 border border-line bg-ink/40 px-4 py-3">
+                    <div className="font-mono text-[10px] uppercase tracking-widest text-stone-500">
+                      schema · {inferSchema(samples.rows).length} fields
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {inferSchema(samples.rows).map((k) => (
+                        <span
+                          key={k}
+                          className="border border-line bg-ink px-1.5 py-0.5 font-mono text-[10px] text-stone-300"
+                        >
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* First N rows · pretty JSON */}
+                  <div className="mt-3 border border-line bg-black/60 px-4 py-3">
+                    <div className="flex items-center justify-between gap-2 font-mono text-[10px] uppercase tracking-widest text-stone-500">
+                      <span>
+                        first {samples.count} row{samples.count === 1 ? "" : "s"}{" "}
+                        · {samples.basename}
+                      </span>
+                      <span>JSONL</span>
+                    </div>
+                    <pre className="mt-3 max-h-96 overflow-auto font-mono text-[11px] leading-relaxed text-stone-300">
+{samples.rows.map((row, i) => `// row ${i + 1}\n${JSON.stringify(row, null, 2)}`).join("\n\n")}
+                    </pre>
+                  </div>
+                </>
+              )}
+            </section>
 
             {/* Share / copy */}
             <div className="mt-6 border border-honey-300/30 bg-honey-300/[0.04] px-4 py-3">
