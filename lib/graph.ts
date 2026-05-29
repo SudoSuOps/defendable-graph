@@ -9,8 +9,13 @@
 // assignment / verdict / receipt / deed / artifact) are HIDDEN when the live
 // chain has receipts of its own — the live chain takes the wheel.
 
-import { fetchPublicReceipt, fetchRecentReceipts, hasCloudAuth } from "./cloud";
-import { projectChain } from "./cloud-to-graph";
+import {
+  fetchDatasetCatalog,
+  fetchPublicReceipt,
+  fetchRecentReceipts,
+  hasCloudAuth,
+} from "./cloud";
+import { projectChain, projectDatasets } from "./cloud-to-graph";
 import {
   entities,
   events as seedEvents,
@@ -32,25 +37,85 @@ const DEMO_TRACE_IDS = new Set<string>([
   // Rulebook is part of the always-on infra so we keep it.
 ]);
 
+/** Last-write-wins dedup by id. Used to merge across projectors that can
+ * legitimately reference the same logical entity (e.g. a dataset projected
+ * both from a download receipt and from the catalog). Order matters: pass
+ * the canonical/richest source LAST.
+ */
+function dedupeNodes<T extends { id: string }>(...lists: T[][]): T[] {
+  const map = new Map<string, T>();
+  for (const list of lists) for (const item of list) map.set(item.id, item);
+  return Array.from(map.values());
+}
+
+function dedupeEdges<T extends { id: string; sourceId: string; targetId: string }>(
+  ...lists: T[][]
+): T[] {
+  // Dedup by id, but ALSO collapse identical (sourceId,targetId,type) pairs
+  // that came from different projectors with different generated ids.
+  const map = new Map<string, T>();
+  const pairKeys = new Set<string>();
+  for (const list of lists) {
+    for (const edge of list) {
+      const pk = `${edge.sourceId}→${edge.targetId}→${(edge as { type?: string }).type ?? ""}`;
+      if (map.has(edge.id) || pairKeys.has(pk)) continue;
+      map.set(edge.id, edge);
+      pairKeys.add(pk);
+    }
+  }
+  return Array.from(map.values());
+}
+
 export async function getGraphData() {
   if (!hasCloudAuth()) {
     return { nodes: entities, edges: relationships };
   }
-  const live = await fetchRecentReceipts(50);
+  // Fetch live chain + dataset catalog in parallel · datasets are a separate
+  // member-only endpoint but cap-graceful: missing catalog just means no
+  // dataset library nodes (chain still renders).
+  const [live, catalog] = await Promise.all([
+    fetchRecentReceipts(50),
+    fetchDatasetCatalog(),
+  ]);
+
   if (!live || live.rollups.length === 0) {
-    // Auth configured but chain is empty · show the seed graph so the page
-    // isn't a blank canvas. Members signal to the operator that the wiring
-    // is correct via the "Live chain · 0 receipts" hint in the UI.
+    // Auth configured but chain is empty · show the seed graph + (if available)
+    // the dataset library overlay so members see something useful immediately.
+    if (catalog) {
+      const ds = projectDatasets(catalog);
+      const orgRoot = [
+        {
+          id: "live_org_root",
+          type: "organization" as const,
+          name: "Your chain",
+          status: "verified" as const,
+          description: "Live chain · awaiting first receipt.",
+          metadata: { source: "GET /receipts/recent", limit: 0 },
+        },
+      ];
+      return {
+        // Catalog projection passed LAST so its richer metadata wins on
+        // any node-id collision with the seed.
+        nodes: dedupeNodes(entities, orgRoot, ds.nodes),
+        edges: dedupeEdges(relationships, ds.edges),
+      };
+    }
     return { nodes: entities, edges: relationships };
   }
+
   const projected = projectChain(live.rollups);
+  const datasetProjection = catalog ? projectDatasets(catalog) : { nodes: [], edges: [] };
+
   const filteredInfra = entities.filter((e) => !DEMO_TRACE_IDS.has(e.id));
   const filteredEdges = relationships.filter(
     (r) => !DEMO_TRACE_IDS.has(r.sourceId) && !DEMO_TRACE_IDS.has(r.targetId),
   );
   return {
-    nodes: [...filteredInfra, ...projected.nodes],
-    edges: [...filteredEdges, ...projected.edges],
+    // Order: seed-infra first · live chain projections next · catalog last.
+    // Catalog's richer dataset metadata wins over a chain-derived sparse
+    // dataset node (e.g. a download receipt that only knew the slug).
+    nodes: dedupeNodes(filteredInfra, projected.nodes, datasetProjection.nodes),
+    edges: dedupeEdges(filteredEdges, projected.edges, datasetProjection.edges),
   };
 }
 

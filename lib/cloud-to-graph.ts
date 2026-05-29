@@ -5,14 +5,18 @@
 // connect them. The seed-data infra (org / operators / GPUs / agents) stays
 // the always-on backbone — we layer live receipts on top.
 
-import type { ReceiptRollup } from "./cloud";
+import type { DatasetCatalog, ReceiptRollup } from "./cloud";
 import type { EntitySeed, EventSeed, RelationshipSeed } from "./seed-data";
 
 /** Stable id for the receipt node itself. */
 const receiptNodeId = (r: ReceiptRollup) => `receipt_${r.receipt_id}`;
 /** Stable id for an in-summary entity (so multiple receipts share the same model node). */
 const modelNodeId = (slug: string) => `model_live_${slug}`;
-const datasetNodeId = (slug: string) => `dataset_live_${slug}`;
+// Canonical dataset id · shared between projectChain (when a dataset-download
+// receipt references a slug) and projectDatasets (when the catalog declares
+// the package). Both use the same id so a dataset rendered from a receipt
+// AND from the catalog dedupe to one node post-merge.
+const datasetNodeId = (slug: string) => `dataset_pkg_${slug}`;
 const assignmentNodeId = (rid: string) => `assignment_live_${rid}`;
 const verdictNodeId = (rid: string) => `verdict_live_${rid}`;
 const deedNodeId = (rid: string) => `deed_live_${rid}`;
@@ -303,4 +307,106 @@ function extractShareTokenFromUrl(url: string): string | null {
   if (!url) return null;
   const m = url.match(/\/share\/([A-Za-z0-9_-]+)/);
   return m ? m[1] : null;
+}
+
+
+// ── Dataset projection · 99 packages → graph nodes + edges ─────────────────
+
+/** Display-friendly labels for the 12 verticals. */
+export const VERTICAL_LABEL: Record<string, string> = {
+  cre: "CRE",
+  medical: "Medical",
+  grants: "Grants",
+  jelly: "Jelly",
+  signal: "Signal",
+  "capital-markets": "Capital Markets",
+  "bee-hive": "Bee-Hive",
+  legal: "Legal",
+  finance: "Finance",
+  aviation: "Aviation",
+  openalex: "OpenAlex",
+  failure: "Failure",
+};
+
+const datasetCategoryNodeId = (vertical: string) => `dataset_category_${vertical}`;
+
+/**
+ * Project the dataset catalog onto graph nodes + edges.
+ *
+ * One node per vertical (the "category" backbone) plus one node per package.
+ * Edges connect each package back to its vertical category. Verticals also
+ * edge back to the live-org root so the dataset library sits inside the
+ * org's chain visualization, not floating alone.
+ */
+export function projectDatasets(catalog: DatasetCatalog): {
+  nodes: EntitySeed[];
+  edges: RelationshipSeed[];
+} {
+  const nodes: EntitySeed[] = [];
+  const edges: RelationshipSeed[] = [];
+
+  const liveOrgId = "live_org_root"; // matches projectChain's anchor id
+
+  // ── Category nodes · one per vertical (with at least one package) ────────
+  const presentVerticals = new Set(catalog.packages.map((p) => p.vertical));
+  for (const v of presentVerticals) {
+    const info = catalog.verticals?.[v];
+    const cid = datasetCategoryNodeId(v);
+    nodes.push({
+      id: cid,
+      type: "dataset",
+      name: `${VERTICAL_LABEL[v] || v} · category`,
+      status: "verified",
+      description: `Dataset vertical · ${info?.packages ?? "?"} packages · ${(info?.pairs ?? 0).toLocaleString()} pairs`,
+      metadata: {
+        kind: "dataset_category",
+        vertical: v,
+        label: VERTICAL_LABEL[v] || v,
+        packages: info?.packages,
+        pairs: info?.pairs,
+      },
+    });
+    edges.push({
+      id: `edge_org_category_${v}`,
+      sourceId: liveOrgId,
+      targetId: cid,
+      type: "library_vertical",
+      metadata: {},
+    });
+  }
+
+  // ── Package nodes · one per dataset · edged back to its category ─────────
+  for (const p of catalog.packages) {
+    const pid = datasetNodeId(p.slug);
+    const cid = datasetCategoryNodeId(p.vertical);
+    nodes.push({
+      id: pid,
+      type: "dataset",
+      name: p.name,
+      status: p.deed_anchored ? "verified" : "active",
+      description: `${p.pkg_class} · ${p.tier} · ${p.pairs.toLocaleString()} pairs`,
+      metadata: {
+        kind: "dataset_package",
+        slug: p.slug,
+        vertical: p.vertical,
+        vertical_label: VERTICAL_LABEL[p.vertical] || p.vertical,
+        tier: p.tier,
+        pkg_class: p.pkg_class,
+        pairs: p.pairs,
+        deed_anchored: p.deed_anchored,
+        deed: p.deed,
+        // The share link the Inspector + node-click can route through.
+        share_url: `/share/dataset/${p.slug}`,
+      },
+    });
+    edges.push({
+      id: `edge_category_pkg_${p.slug}`,
+      sourceId: cid,
+      targetId: pid,
+      type: "contains",
+      metadata: {},
+    });
+  }
+
+  return { nodes, edges };
 }
