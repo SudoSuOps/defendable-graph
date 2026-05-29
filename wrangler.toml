@@ -1,5 +1,8 @@
 name = "defendable-graph"
 compatibility_date = "2026-05-28"
+# Next-on-pages workers need Node.js APIs at runtime · without this flag,
+# the worker returns 503 "no nodejs_compat compatibility flag".
+compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = ".vercel/output/static"
 
 [vars]
